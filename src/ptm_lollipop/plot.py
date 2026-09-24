@@ -52,6 +52,7 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
     recs = sorted(records, key=lambda record: record.gene)
     max_len = max(record.length for record in recs)
     width_pt = letter[0]
+    png_right_pad_pt = 24
     row_h = 23
     top = 108
     bottom = 52
@@ -59,7 +60,7 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
     left_label = 34
     x0 = 230
     x1 = width_pt - 42
-    scale = (x1 - x0) / max_len
+    aa_scale = (x1 - x0) / max_len
 
     families = sorted(
         {ptm.family for record in recs for ptm in record.ptms},
@@ -67,14 +68,20 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
     )
 
     def aa_to_x(pos: int) -> float:
-        return x0 + (pos - 1) * scale
+        return x0 + (pos - 1) * aa_scale
 
     def draw_common(drawer, is_pdf: bool, dpi_scale: float = 1.0) -> None:
         def s(value: float) -> float:
             return value * dpi_scale
 
+        def px(value: float) -> int:
+            return int(round(value * dpi_scale))
+
         def y(value: float) -> float:
             return s(height_pt - value)
+
+        def py(value: float) -> int:
+            return int(round((height_pt - value) * dpi_scale))
 
         def color(hex_color: str):
             if is_pdf:
@@ -96,25 +103,28 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
         else:
             d = drawer
             fonts = _fonts()
-            d.rectangle([0, 0, s(width_pt), s(height_pt)], fill="white")
-            d.text((s(x0), s(18)), category, font=fonts["title"], fill=color("#202124"))
-            d.text((s(x1 - 48), y(18)), f"{max_len:,} aa", font=fonts["small"], fill=color("#5f6368"))
-            d.line([s(x0), y(30), s(x1), y(30)], fill=color("#9aa0a6"), width=max(1, int(s(0.7))))
+            d.rectangle([0, 0, px(width_pt), px(height_pt)], fill="white")
+            d.text((px(x0), px(18)), category, font=fonts["title"], fill=color("#202124"))
+            d.text((px(x1 - 48), py(18)), f"{max_len:,} aa", font=fonts["small"], fill=color("#5f6368"))
+            d.line([(px(x0), py(30)), (px(x1), py(30))], fill=color("#9aa0a6"), width=max(1, px(0.7)))
 
         tick_max = int(math.ceil(max_len / 500.0) * 500)
         for tick in range(500, tick_max + 1, 500):
             if tick > max_len:
                 continue
             x = aa_to_x(tick)
+            show_tick_label = x1 - x >= 58
             if is_pdf:
                 c.setStrokeColor(color("#9aa0a6"))
                 c.line(s(x), s(26), s(x), s(34))
-                c.setFont("Helvetica", 6.5)
-                c.setFillColor(color("#5f6368"))
-                c.drawCentredString(s(x), s(14), str(tick))
+                if show_tick_label:
+                    c.setFont("Helvetica", 6.5)
+                    c.setFillColor(color("#5f6368"))
+                    c.drawCentredString(s(x), s(14), str(tick))
             else:
-                d.line([s(x), y(34), s(x), y(26)], fill=color("#9aa0a6"), width=max(1, int(s(0.7))))
-                d.text((s(x - 8), y(14)), str(tick), font=fonts["small"], fill=color("#5f6368"))
+                d.line([(px(x), py(34)), (px(x), py(26))], fill=color("#9aa0a6"), width=max(1, px(0.7)))
+                if show_tick_label:
+                    d.text((px(x - 8), py(14)), str(tick), font=fonts["small"], fill=color("#5f6368"))
 
         for i, record in enumerate(recs):
             row_y = height_pt - top - i * row_h
@@ -129,9 +139,9 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
                 c.setLineWidth(s(1.7))
                 c.line(s(x0), s(row_y), s(aa_to_x(record.length)), s(row_y))
             else:
-                d.text((s(left_label), y(row_y + 8)), record.gene, font=fonts["bold"], fill=color("#202124"))
-                d.text((s(left_label + 78), y(row_y + 7)), f"{record.systematic} | {record.length} aa", font=fonts["small"], fill=color("#5f6368"))
-                d.line([s(x0), y(row_y), s(aa_to_x(record.length)), y(row_y)], fill=color("#343a40"), width=max(2, int(s(1.7))))
+                d.text((px(left_label), py(row_y + 8)), record.gene, font=fonts["bold"], fill=color("#202124"))
+                d.text((px(left_label + 78), py(row_y + 7)), f"{record.systematic} | {record.length} aa", font=fonts["small"], fill=color("#5f6368"))
+                d.line([(px(x0), py(row_y)), (px(aa_to_x(record.length)), py(row_y))], fill=color("#343a40"), width=max(2, px(1.7)))
 
             for start, end in record.disorder:
                 xa, xb = aa_to_x(start), aa_to_x(end)
@@ -139,7 +149,7 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
                     c.setFillColor(color("#5B5B5B"))
                     c.rect(s(xa), s(row_y - 3.3), s(max(1.0, xb - xa)), s(6.6), stroke=0, fill=1)
                 else:
-                    d.rectangle([s(xa), y(row_y + 4), s(max(xa + 1, xb)), y(row_y - 4)], fill=color("#5B5B5B"))
+                    d.rectangle([px(xa), py(row_y + 4), px(max(xa + 1, xb)), py(row_y - 4)], fill=color("#5B5B5B"))
 
             sites_by_position = defaultdict(list)
             for ptm in record.ptms:
@@ -156,10 +166,11 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
                         c.setFillColor(ptm_color)
                         c.circle(s(x), s(row_y + 14 + offset), s(2.0), stroke=0, fill=1)
                     else:
-                        d.line([s(x), y(row_y + 11.5), s(x), y(row_y + 4.5)], fill=ptm_color, width=max(1, int(s(0.85))))
-                        rad = s(2.2)
-                        cy = y(row_y + 14 + offset)
-                        d.ellipse([s(x) - rad, cy - rad, s(x) + rad, cy + rad], fill=ptm_color, outline="white")
+                        d.line([(px(x), py(row_y + 11.5)), (px(x), py(row_y + 4.5))], fill=ptm_color, width=max(1, px(0.85)))
+                        rad = px(2.2)
+                        cx = px(x)
+                        cy = py(row_y + 14 + offset)
+                        d.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], fill=ptm_color, outline="white")
 
         legend_x = width_pt - 193
         legend_y = height_pt - 29
@@ -176,22 +187,22 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
                 c.setFillColor(color("#202124"))
                 c.drawString(s(legend_x + 14), s(ly - 2.2), family.capitalize())
         else:
-            d.rectangle([s(legend_x), s(24), s(legend_x + 10), s(28.5)], fill=color("#5B5B5B"))
-            d.text((s(legend_x + 14), s(19)), "MobiDB-lite disorder", font=fonts["small"], fill=color("#202124"))
+            d.rectangle([px(legend_x), px(24), px(legend_x + 10), px(28.5)], fill=color("#5B5B5B"))
+            d.text((px(legend_x + 14), px(19)), "MobiDB-lite disorder", font=fonts["small"], fill=color("#202124"))
             for k, family in enumerate(families):
                 ly = 36 + k * 10
                 ptm_color = color(PTM_COLORS.get(family, PTM_COLORS["other"]))
-                d.ellipse([s(legend_x + 3.3), s(ly - 2.2), s(legend_x + 6.7), s(ly + 2.2)], fill=ptm_color)
-                d.text((s(legend_x + 14), s(ly - 4.4)), family.capitalize(), font=fonts["small"], fill=color("#202124"))
+                d.ellipse([px(legend_x + 3.3), px(ly - 2.2), px(legend_x + 6.7), px(ly + 2.2)], fill=ptm_color)
+                d.text((px(legend_x + 14), px(ly - 4.4)), family.capitalize(), font=fonts["small"], fill=color("#202124"))
 
     pdf = canvas.Canvas(str(path_pdf), pagesize=(width_pt, height_pt))
     draw_common(pdf, is_pdf=True)
     pdf.save()
 
-    scale = dpi / 72
-    image = Image.new("RGB", (int(width_pt * scale), int(height_pt * scale)), "white")
+    raster_scale = dpi / 72
+    image = Image.new("RGB", (int((width_pt + png_right_pad_pt) * raster_scale), int(height_pt * raster_scale)), "white")
     draw = ImageDraw.Draw(image)
-    draw_common(draw, is_pdf=False, dpi_scale=scale)
+    draw_common(draw, is_pdf=False, dpi_scale=raster_scale)
     image.save(path_png, dpi=(dpi, dpi))
 
 

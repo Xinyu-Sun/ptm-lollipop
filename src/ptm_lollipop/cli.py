@@ -34,11 +34,13 @@ def main(argv: list[str] | None = None) -> int:
     written = plot_all_categories(records, outdir, dpi=args.dpi)
 
     print("Wrote:")
-    for path in written + [outdir / "ptm_sites.tsv", outdir / "disorder_qc.tsv", outdir / "records.json"]:
+    table_paths = [outdir / "ptm_sites.tsv", outdir / "sgd_disorder.tsv", outdir / "records.json"]
+    if any(record.user_disorder_text for record in records):
+        table_paths.append(outdir / "disorder_qc.tsv")
+    for path in written + table_paths:
         print(path)
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

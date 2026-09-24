@@ -7,7 +7,7 @@ The repo turns a simple protein list into publication-ready linear protein schem
 - protein backbones scaled by amino-acid length
 - PTM sites pulled from SGD and deduplicated by site, residue, and PTM family
 - optional disorder intervals from SGD MobiDB-lite
-- optional user-supplied disorder coordinates checked against SGD
+- optional legacy/user-supplied disorder coordinates checked against SGD
 - category-level PNG/PDF panels and QC tables
 
 ## Quick Start
@@ -36,7 +36,7 @@ Optional columns:
 
 - `category`: used to split output panels. Defaults to `Proteins`.
 - `label`: display label. Defaults to `gene`.
-- `disorder`: user-supplied disorder ranges for QC, such as `1-44; 449-566`. The plot itself uses SGD MobiDB-lite by default.
+- `disorder`: legacy/user-supplied disorder ranges for comparison, such as `1-44; 449-566`. The plot itself always uses SGD MobiDB-lite.
 
 ## Outputs
 
@@ -48,7 +48,8 @@ For each category, the CLI writes:
 It also writes:
 
 - `ptm_sites.tsv`: deduplicated PTM annotations used for plotting
-- `disorder_qc.tsv`: user disorder coordinates compared with SGD MobiDB-lite
+- `sgd_disorder.tsv`: SGD MobiDB-lite disorder intervals used by the plots
+- `disorder_qc.tsv`: only written when the input includes a `disorder` column with values, comparing those values with SGD MobiDB-lite
 - `records.json`: normalized data used by the plotting layer
 
 ## Data Source
@@ -70,4 +71,3 @@ pytest
 ```
 
 The tests use local fixtures and do not hit SGD.
-
