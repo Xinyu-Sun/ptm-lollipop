@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+import fitz
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -52,9 +52,10 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
     recs = sorted(records, key=lambda record: record.gene)
     max_len = max(record.length for record in recs)
     width_pt = letter[0]
-    png_right_pad_pt = 24
     row_h = 23
-    top = 108
+    legend_step = 10
+    legend_height = 18 + max(1, len({ptm.family for record in recs for ptm in record.ptms})) * legend_step
+    top = max(108, 70 + legend_height)
     bottom = 52
     height_pt = max(210, top + len(recs) * row_h + bottom)
     left_label = 34
@@ -70,43 +71,22 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
     def aa_to_x(pos: int) -> float:
         return x0 + (pos - 1) * aa_scale
 
-    def draw_common(drawer, is_pdf: bool, dpi_scale: float = 1.0) -> None:
+    def draw_pdf(c) -> None:
         def s(value: float) -> float:
-            return value * dpi_scale
-
-        def px(value: float) -> int:
-            return int(round(value * dpi_scale))
-
-        def y(value: float) -> float:
-            return s(height_pt - value)
-
-        def py(value: float) -> int:
-            return int(round((height_pt - value) * dpi_scale))
+            return value
 
         def color(hex_color: str):
-            if is_pdf:
-                return HexColor(hex_color)
-            cleaned = hex_color.lstrip("#")
-            return tuple(int(cleaned[i:i + 2], 16) for i in (0, 2, 4))
+            return HexColor(hex_color)
 
-        if is_pdf:
-            c = drawer
-            c.setFillColor(color("#202124"))
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(s(x0), s(height_pt - 27), category)
-            c.setFont("Helvetica", 7)
-            c.setFillColor(color("#5f6368"))
-            c.drawRightString(s(x1), s(18), f"{max_len:,} aa")
-            c.setStrokeColor(color("#9aa0a6"))
-            c.setLineWidth(s(0.7))
-            c.line(s(x0), s(30), s(x1), s(30))
-        else:
-            d = drawer
-            fonts = _fonts()
-            d.rectangle([0, 0, px(width_pt), px(height_pt)], fill="white")
-            d.text((px(x0), px(18)), category, font=fonts["title"], fill=color("#202124"))
-            d.text((px(x1 - 48), py(18)), f"{max_len:,} aa", font=fonts["small"], fill=color("#5f6368"))
-            d.line([(px(x0), py(30)), (px(x1), py(30))], fill=color("#9aa0a6"), width=max(1, px(0.7)))
+        c.setFillColor(color("#202124"))
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(s(x0), s(height_pt - 27), category)
+        c.setFont("Helvetica", 7)
+        c.setFillColor(color("#5f6368"))
+        c.drawRightString(s(x1), s(18), f"{max_len:,} aa")
+        c.setStrokeColor(color("#9aa0a6"))
+        c.setLineWidth(s(0.7))
+        c.line(s(x0), s(30), s(x1), s(30))
 
         tick_max = int(math.ceil(max_len / 500.0) * 500)
         for tick in range(500, tick_max + 1, 500):
@@ -114,42 +94,29 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
                 continue
             x = aa_to_x(tick)
             show_tick_label = x1 - x >= 58
-            if is_pdf:
-                c.setStrokeColor(color("#9aa0a6"))
-                c.line(s(x), s(26), s(x), s(34))
-                if show_tick_label:
-                    c.setFont("Helvetica", 6.5)
-                    c.setFillColor(color("#5f6368"))
-                    c.drawCentredString(s(x), s(14), str(tick))
-            else:
-                d.line([(px(x), py(34)), (px(x), py(26))], fill=color("#9aa0a6"), width=max(1, px(0.7)))
-                if show_tick_label:
-                    d.text((px(x - 8), py(14)), str(tick), font=fonts["small"], fill=color("#5f6368"))
+            c.setStrokeColor(color("#9aa0a6"))
+            c.line(s(x), s(26), s(x), s(34))
+            if show_tick_label:
+                c.setFont("Helvetica", 6.5)
+                c.setFillColor(color("#5f6368"))
+                c.drawCentredString(s(x), s(14), str(tick))
 
         for i, record in enumerate(recs):
             row_y = height_pt - top - i * row_h
-            if is_pdf:
-                c.setFillColor(color("#202124"))
-                c.setFont("Helvetica-Bold", 8.5)
-                c.drawString(s(left_label), s(row_y - 2), record.gene)
-                c.setFillColor(color("#5f6368"))
-                c.setFont("Helvetica", 6.5)
-                c.drawString(s(left_label + 78), s(row_y - 2), f"{record.systematic} | {record.length} aa")
-                c.setStrokeColor(color("#343a40"))
-                c.setLineWidth(s(1.7))
-                c.line(s(x0), s(row_y), s(aa_to_x(record.length)), s(row_y))
-            else:
-                d.text((px(left_label), py(row_y + 8)), record.gene, font=fonts["bold"], fill=color("#202124"))
-                d.text((px(left_label + 78), py(row_y + 7)), f"{record.systematic} | {record.length} aa", font=fonts["small"], fill=color("#5f6368"))
-                d.line([(px(x0), py(row_y)), (px(aa_to_x(record.length)), py(row_y))], fill=color("#343a40"), width=max(2, px(1.7)))
+            c.setFillColor(color("#202124"))
+            c.setFont("Helvetica-Bold", 8.5)
+            c.drawString(s(left_label), s(row_y - 2), record.gene)
+            c.setFillColor(color("#5f6368"))
+            c.setFont("Helvetica", 6.5)
+            c.drawString(s(left_label + 78), s(row_y - 2), f"{record.systematic} | {record.length} aa")
+            c.setStrokeColor(color("#343a40"))
+            c.setLineWidth(s(1.7))
+            c.line(s(x0), s(row_y), s(aa_to_x(record.length)), s(row_y))
 
             for start, end in record.disorder:
                 xa, xb = aa_to_x(start), aa_to_x(end)
-                if is_pdf:
-                    c.setFillColor(color("#5B5B5B"))
-                    c.rect(s(xa), s(row_y - 3.3), s(max(1.0, xb - xa)), s(6.6), stroke=0, fill=1)
-                else:
-                    d.rectangle([px(xa), py(row_y + 4), px(max(xa + 1, xb)), py(row_y - 4)], fill=color("#5B5B5B"))
+                c.setFillColor(color("#5B5B5B"))
+                c.rect(s(xa), s(row_y - 3.3), s(max(1.0, xb - xa)), s(6.6), stroke=0, fill=1)
 
             sites_by_position = defaultdict(list)
             for ptm in record.ptms:
@@ -159,68 +126,39 @@ def plot_category(records: list[ProteinRecord], category: str, path_pdf: Path, p
                     ptm_color = color(PTM_COLORS.get(ptm.family, PTM_COLORS["other"]))
                     x = aa_to_x(site)
                     offset = (j - (len(ptms) - 1) / 2) * 3.0
-                    if is_pdf:
-                        c.setStrokeColor(ptm_color)
-                        c.setLineWidth(s(0.85))
-                        c.line(s(x), s(row_y + 4.5), s(x), s(row_y + 11.5))
-                        c.setFillColor(ptm_color)
-                        c.circle(s(x), s(row_y + 14 + offset), s(2.0), stroke=0, fill=1)
-                    else:
-                        d.line([(px(x), py(row_y + 11.5)), (px(x), py(row_y + 4.5))], fill=ptm_color, width=max(1, px(0.85)))
-                        rad = px(2.2)
-                        cx = px(x)
-                        cy = py(row_y + 14 + offset)
-                        d.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], fill=ptm_color, outline="white")
+                    c.setStrokeColor(ptm_color)
+                    c.setLineWidth(s(0.85))
+                    c.line(s(x), s(row_y + 4.5), s(x), s(row_y + 11.5))
+                    c.setFillColor(ptm_color)
+                    c.circle(s(x), s(row_y + 14 + offset), s(2.0), stroke=0, fill=1)
 
         legend_x = width_pt - 193
         legend_y = height_pt - 29
-        if is_pdf:
-            c.setFont("Helvetica", 7)
-            c.setFillColor(color("#5B5B5B"))
-            c.rect(s(legend_x), s(legend_y - 3.5), s(10), s(4.5), stroke=0, fill=1)
+        legend_font_size = 7 if len(families) <= 6 else 6.2
+        legend_marker = 2.2 if len(families) <= 6 else 1.8
+        legend_step_dynamic = 10 if len(families) <= 6 else 8.5
+        c.setFont("Helvetica", legend_font_size)
+        c.setFillColor(color("#5B5B5B"))
+        c.rect(s(legend_x), s(legend_y - 3.5), s(10), s(4.5), stroke=0, fill=1)
+        c.setFillColor(color("#202124"))
+        c.drawString(s(legend_x + 14), s(legend_y - 3.5), "MobiDB-lite disorder")
+        for k, family in enumerate(families):
+            ly = legend_y - 12 - k * legend_step_dynamic
+            c.setFillColor(color(PTM_COLORS.get(family, PTM_COLORS["other"])))
+            c.circle(s(legend_x + 5), s(ly), s(legend_marker), stroke=0, fill=1)
             c.setFillColor(color("#202124"))
-            c.drawString(s(legend_x + 14), s(legend_y - 3.5), "MobiDB-lite disorder")
-            for k, family in enumerate(families):
-                ly = legend_y - 12 - k * 10
-                c.setFillColor(color(PTM_COLORS.get(family, PTM_COLORS["other"])))
-                c.circle(s(legend_x + 5), s(ly), s(2.2), stroke=0, fill=1)
-                c.setFillColor(color("#202124"))
-                c.drawString(s(legend_x + 14), s(ly - 2.2), family.capitalize())
-        else:
-            d.rectangle([px(legend_x), px(24), px(legend_x + 10), px(28.5)], fill=color("#5B5B5B"))
-            d.text((px(legend_x + 14), px(19)), "MobiDB-lite disorder", font=fonts["small"], fill=color("#202124"))
-            for k, family in enumerate(families):
-                ly = 36 + k * 10
-                ptm_color = color(PTM_COLORS.get(family, PTM_COLORS["other"]))
-                d.ellipse([px(legend_x + 3.3), px(ly - 2.2), px(legend_x + 6.7), px(ly + 2.2)], fill=ptm_color)
-                d.text((px(legend_x + 14), px(ly - 4.4)), family.capitalize(), font=fonts["small"], fill=color("#202124"))
+            c.drawString(s(legend_x + 14), s(ly - 2.2), family.capitalize())
 
     pdf = canvas.Canvas(str(path_pdf), pagesize=(width_pt, height_pt))
-    draw_common(pdf, is_pdf=True)
+    draw_pdf(pdf)
     pdf.save()
 
-    raster_scale = dpi / 72
-    image = Image.new("RGB", (int((width_pt + png_right_pad_pt) * raster_scale), int(height_pt * raster_scale)), "white")
-    draw = ImageDraw.Draw(image)
-    draw_common(draw, is_pdf=False, dpi_scale=raster_scale)
-    image.save(path_png, dpi=(dpi, dpi))
+    render_pdf_to_png(path_pdf, path_png, dpi=dpi)
 
 
-def _fonts() -> dict[str, ImageFont.FreeTypeFont | ImageFont.ImageFont]:
-    return {
-        "small": _font(28),
-        "bold": _font(36, bold=True),
-        "title": _font(44, bold=True),
-    }
-
-
-def _font(size: int, bold: bool = False):
-    candidates = [
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Helvetica Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Helvetica.ttf",
-        "/Library/Fonts/Arial Bold.ttf" if bold else "/Library/Fonts/Arial.ttf",
-    ]
-    for path in candidates:
-        if path and Path(path).exists():
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
+def render_pdf_to_png(path_pdf: Path, path_png: Path, dpi: int = 300) -> None:
+    zoom = dpi / 72
+    with fitz.open(path_pdf) as doc:
+        page = doc.load_page(0)
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        pixmap.save(path_png)
